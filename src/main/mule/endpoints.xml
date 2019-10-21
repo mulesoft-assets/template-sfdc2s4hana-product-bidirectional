@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core"
+    xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:s4hana="http://www.mulesoft.org/schema/mule/s4hana"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/s4hana http://www.mulesoft.org/schema/mule/s4hana/current/mule-s4hana.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+    <flow name="schedulerFlow" doc:id="aff4106d-d2f6-4366-940a-a380dcb1cf73">
+        <scheduler doc:name="Scheduler" doc:id="58b7c776-fbee-4753-9bea-f6cc3e037efd">
+            <scheduling-strategy>
+                <fixed-frequency frequency="${scheduler.frequency}" startDelay="${scheduler.start.delay}" />
+            </scheduling-strategy>
+        </scheduler>
+        <os:retrieve key="syncState" doc:name="Retrieve sync state" objectStore="SchedulerStatus" target="syncState">
+            <os:default-value><![CDATA[#["fromS4Hana"]]]></os:default-value>
+        </os:retrieve>
+        <choice doc:name="SyncState?" doc:id="ed5731b0-0b81-446f-a80b-28729dcff5d8">
+            <when expression="#[( vars.syncState != 'running' and vars.syncState == 'fromSalesforce') or vars.syncState == null]">
+                <logger level="INFO" doc:name="running from Salesforce" doc:id="9b3fefd5-c0eb-4a11-971d-bc35fd14aca3" message="running from Salesforce" />
+                <os:store key="syncState" doc:name="Set sync state to running" doc:id="016aef19-c3a4-4ef4-ae14-736617f7076a" objectStore="SchedulerStatus">
+                    <os:value><![CDATA[#["running"]]]></os:value>
+                </os:store>
+                <flow-ref doc:name="queryFlowSalesforce" doc:id="6cf01a93-d096-4cff-aaa8-dc322331c4d9" name="queryFlowSalesforce" />
+                <flow-ref doc:name="Call fromSalesforceToS4Hana" doc:id="fc543051-70d2-4ef3-806f-8ee5ef953de1" name="fromSalesforceToS4Hana" />
+            </when>
+            <when expression="#[vars.syncState != 'running' and vars.syncState == 'fromS4Hana']">
+                <logger level="INFO" doc:name="running from S4Hana" doc:id="ff94d2ed-9200-4a76-9e44-a60ca8d7c2a1" message="running from S4Hana" />
+                <os:store key="syncState" doc:name="Set sync state to running" doc:id="17e043d8-1e7b-4524-ab04-454abba538c5" objectStore="SchedulerStatus">
+                    <os:value><![CDATA[#["running"]]]></os:value>
+                </os:store>
+                <flow-ref doc:name="Call queryFlowS4Hana" doc:id="f0d09c7f-c670-428c-9ad0-928530884b79" name="queryFlowS4Hana" />
+                <flow-ref doc:name="Call fromS4HanaToSalesforce" doc:id="c09424d8-d8f4-4008-8542-0f4ec42c3666" name="fromS4HanaToSalesforce" />
+            </when>
+            <otherwise>
+                <logger level="INFO" doc:name="Batch running" doc:id="ed69e982-ec5c-482f-91ab-a5402c975412" message="Batch running" />
+            </otherwise>
+        </choice>
+        <error-handler>
+            <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="b4058020-c27d-42e3-a04b-c6a229412e39">
+                <flow-ref doc:name="errorHandlingFlow" doc:id="ac510b14-906a-499a-ae8d-edc6f8354ae7" name="errorHandlingFlow" />
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+    <flow name="queryFlowSalesforce">
+        <os:retrieve key="watermark" objectStore="watermarkStoreSalesforce" target="lastQueryTimestampSalesforce" doc:name="Retrieve lastQueryTimestamp">
+            <os:default-value><![CDATA[#[p('watermark.default.expression')]]]></os:default-value>
+        </os:retrieve>
+        <salesforce:query doc:name="Query Products from Salesforce" doc:id="1f837449-37a1-4508-91fc-1be79cd8f457" config-ref="Salesforce_Config">
+            <salesforce:salesforce-query>Select Name, ProductCode, Description,LastModifiedDate from Product2 WHERE LastModifiedDate &gt; :lastModifiedDate AND LastModifiedById !=
+                ':integrationUserId' ORDER BY LastModifiedDate</salesforce:salesforce-query>
+            <salesforce:parameters><![CDATA[#[output application/java
+---
+{
+	"integrationUserId" : p("sfdc.integration.user.id"),
+	"lastModifiedDate" : vars.lastQueryTimestampSalesforce
+}]]]></salesforce:parameters>
+
+        </salesforce:query>
+        <set-variable value="#[max(payload map $.LastModifiedDate)]" doc:name="Set maxLastModifiedDate Variable" doc:id="a311ca18-9db4-489a-9301-aae228883828"
+            variableName="maxLastModifiedDate" />
+        <os:store key="watermark" failOnNullValue="false" doc:name="Store lastQueryTimestamp" objectStore="watermarkStoreSalesforce">
+            <os:value><![CDATA[#[vars.maxLastModifiedDate]]]></os:value>
+        </os:store>
+        <ee:transform doc:name="Mapping for S4Hana" doc:id="50c141e2-2f5d-4167-bb7f-557e259c56fc">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+payload map {
+    Product: upper($.ProductCode),
+    "ProductType" : p('s4hana.productType'),
+    "BaseUnit" :  p('s4hana.baseUnit'),
+    "ProductGroup":  p('s4hana.productGroup'),
+    "to_Description": [{
+        "Product" : upper($.ProductCode),
+        "Language" : "EN",
+        "ProductDescription" : if (not isEmpty($.Description)) $.Description else $.Name
+  }]
+}
+]]></ee:set-payload>
+            </ee:message>
+            <ee:variables>
+            </ee:variables>
+        </ee:transform>
+    </flow>
+    <flow name="queryFlowS4Hana">
+        <os:retrieve key="watermark" target="lastQueryTimestampS4Hana" doc:name="Retrieve lastQueryTimestamp" objectStore="watermarkStoreS4Hana">
+            <os:default-value><![CDATA[#[p('watermark.default.expression')]]]></os:default-value>
+        </os:retrieve>
+        <s4hana:query doc:name="Query Product" doc:id="968491c2-a9c3-48e8-9b31-56e9da05655d" config-ref="SAP_S_4HANA_Config" service="API_PRODUCT_SRV" entityType="A_Product"
+            filter="#[&quot;LastChangeDateTime gt datetimeoffset'&quot; ++ vars.lastQueryTimestampS4Hana ++&quot;'&quot;]" />
+        <ee:transform doc:name="Mapping for Salesforce" doc:id="50c141e2-2f5d-4167-bb7f-557e259c56fc">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+payload map {
+    Name: $.ProductType ++ " " ++ $.Product,
+    ProductCode: $.Product ,
+    Description : $.ProductType
+}
+]]></ee:set-payload>
+            </ee:message>
+            <ee:variables>
+                <ee:set-variable variableName="lastDate"><![CDATA[%dw 2.0
+output application/java
+---
+if (isEmpty(payload) ) {
+    date: vars.lastQueryTimestampS4Hana   
+}
+else {
+ date: max(payload.LastChangeDateTime) as DateTime as String { format: "yyyy-MM-dd'T'HH:mm:ss'Z'" }
+ }]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <os:store key="watermark" failOnNullValue="false" doc:name="Store lastQueryTimestamp" objectStore="watermarkStoreS4Hana">
+            <os:value><![CDATA[#[vars.lastDate.date]]]></os:value>
+        </os:store>
+    </flow>
+</mule>

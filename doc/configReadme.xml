@@ -1,0 +1,125 @@
+<?xml version='1.0' encoding='utf-8'?>
+<configuration>
+    <placeholders>
+        <placeholder id="template_name">Salesforce to SAP S/4HANA Product Bidirectional Sync</placeholder>
+    </placeholders>
+    <sections>
+        <section id="use_case">
+As a Salesforce administrator I want to have my Products synchronized between SAP S/4HANA and Salesforce organization.
+
+This Template should serve as a foundation for setting an online bi-directional sync between SAP S/4HANA Product and Salesforce Product Objects.
+
+The integration main behaviour is polling for changes (new Products or modified ones) that have occurred either in SAP S/4HANA or Salesforce during a certain defined period of
+time. For those Products that both have not been updated yet the integration triggers an upsert (update or create depending on the case) taking the last modification as the one that should be applied.
+
+Requirements have been set not only to be used as examples, but also to establish a starting point to adapt your integration to your requirements.
+
+### Template overview
+Let's say we want to keep Salesforce instance synchronized with SAP S/4HANA. Then, the integration behavior can be summarized just with the following steps:
+
+1. Ask Salesforce:
+*Which changes have there been since the last time I got in touch with you?*
+
+2. For each of the updates fetched in the previous step (1.), ask SAP S/4HANA:
+*Does the update received from Salesforce should be applied?*
+
+3. If SAP S/4HANA answer for the previous question (2.) is *Yes*, then *upsert* (create or update depending each particular case) SAP S/4HANA with the belonging change
+
+4. Repeat previous steps (1. to 3.) the other way around (using SAP S/4HANA as source instance and Salesforce as the target one)
+
+Repeat *ad infinitum*:
+
+5. Ask Salesforce:
+*Which changes have there been since the question I've made in the step 1.?*
+And so on...
+
+        </section>
+        <section id="considerations">
+To make this template run, there are certain preconditions that must be considered. All of them deal with the preparations in both source (SAP S/4HANA) and destination (SFDC)
+systems, that must be made for the template to run smoothly. Failing to do so can lead to unexpected behavior of the template.
+
+Before you continue with the use of this template, you may want to check out this [Documentation Page](https://docs.mulesoft.com/connectors/sap/sap-s4hana-cloud-connector), that teaches you how to work with SAP S/4HANA and Anypoint Studio.
+
+        </section>
+        <section id="running_on_studio">
+After you import your template into Anypoint Studio, follow these steps to run it:
+
++ Locate the properties file `mule.dev.properties`, in
+src/main/resources.
++ Complete all the properties required as per the examples in the "Properties to Configure" section.
++ Right click the template project folder.
++ Hover
+your mouse over `Run as`.
++ Click `Mule Application (configure)`.
++ Inside the dialog, select Environment and set the variable `mule.env` to the value `dev`.
++ Click
+`Run`.
+
+To make this template run on Studio there are a few extra steps that needs to be made.
+Check this Documentation Page: [Enabling Your Studio Project for SAP
+S/4HANA](https://docs.mulesoft.com/connectors/sap/sap-s4hana-cloud-connector#configuring-the-connector-in-studio-7).
+        </section>
+        <section id="sfdcsrc">
+​Here's what you need to know about Salesforce to get this template to work.
+
+        </section>
+        <section id="s4hana_dst">
+
+There are no considerations with using a SAP S/4HANA as a data origin.
+        </section>
+        <section id="application_configuration">
+**Application Configuration**
++ page.size `1000`
++ aggregator.size `10`
+
+**Scheduler Configuration**
++ scheduler.frequency `10000`
++ scheduler.startDelay `0`
+
+**Watermarking Default Last Query Timestamp e.g. 2019-12-13T03:00:59Z**
++ watermark.default.expression `2018-02-25T11:00:00.000Z`
+
+
+**SalesForce Connector Configuration**
+
++ sfdc.username `bob.dylan@sfdc`
++ sfdc.password `DylanPassword123`
++ sfdc.securityToken `avsfwCUl7apQs56Xq2AKi3X`
++ sfdc.integration.user.id `1234678`
+
+**SAP S/4HANA Connector Configuration**
+
++ s4hana.baseUrl `your.s4hana.address.com`
++ s4hana.username `your.s4hana.username`
++ s4hana.password `your.s4hana.password`
++ s4hana.productType `s4hana.productType`
++ s4hana.baseUnit `s4hana.baseUnit`
++ s4hana.productGroup `s4hana.productGroup`
+
+            ​
+        </section>
+        <section id="api_calls">
+
+SalesForce imposes limits on the number of API Calls that can be made.
+Therefore calculating this amount may be an important factor to consider. Template calls to the API can be calculated using the formula:
+
+**X / ${page.size}**
+
+Being X the number of Products to be synchronized on each run.
+
+The division by ${page.size} is
+because, by default, Products are gathered in groups of ${page.size} for each Upsert API Call in the aggregation step. Also consider that this calls are executed repeatedly every polling cycle.
+
+For instance if 10 records are fetched from origin instance, then 1 api calls to SFDC will be made (1).
+        </section>
+        <section id="default_business_logic_xml">
+		<![CDATA[
+Functional aspect of the template is implemented on this XML, directed by a batch job that's responsible for creations or updates. The several message processors constitute three high level actions that fully implement the logic of this template:
+1. Job execution is invoked from SchedulerFlow (endpoints.xml) every time there is a new query executed asking for created or updated Products.
+2. During the *Process* stage, each product is filtered depending on if it has an existing matching product in target system.
+3. The last step of the *Process* stage groups the products and creates or updates them in target system.
+4. Finally during the *On Complete* stage, the template logs the output statistics data on the console.
+]]>
+        </section>
+    </sections>
+</configuration>
