@@ -103,4 +103,4 @@
         </repository>
     </repositories>
 
-</project>
+<scm><connection>scm:git:git@github.com:mulesoft/template-sfdc2s4hana-product-bidirectional.git</connection><developerConnection>scm:git:git@github.com:mulesoft/template-sfdc2s4hana-product-bidirectional.git</developerConnection><url>https://github.com/mulesoft/template-sfdc2s4hana-product-bidirectional</url><tag>HEAD</tag></scm></project>
